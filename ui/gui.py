@@ -4,9 +4,9 @@ from tkinter import scrolledtext, simpledialog, messagebox
 def run_gui(dummy_client=None):
     grupos = []  # Lista para guardar grupos creados
 
-    def open_chat_window(nombre, nickname, chat_name=None):
+    def open_chat_window(nombre, chat_name=None):
         window = tk.Tk()
-        title = f"MensajeApp - Cliente de Chat ({nickname})"
+        title = f"MensajeApp - Cliente de Chat ({nombre})"
         if chat_name:
             title += f" - {chat_name}"
         window.title(title)
@@ -22,7 +22,7 @@ def run_gui(dummy_client=None):
         def send_message():
             msg = entry_message.get()
             if msg:
-                chat_display.insert(tk.END, f"{nickname} ({nombre}): {msg}\n")
+                chat_display.insert(tk.END, f"({nombre}): {msg}\n")
                 entry_message.delete(0, tk.END)
                 chat_display.insert(tk.END, "Servidor: (simulado) Mensaje recibido.\n")
 
@@ -31,16 +31,16 @@ def run_gui(dummy_client=None):
 
         def salir_al_menu():
             window.destroy()
-            open_main_menu(nombre, nickname)
+            open_main_menu(nombre)
 
         btn_salir = tk.Button(window, text="Salir al menú", command=salir_al_menu)
         btn_salir.pack(pady=(0,10))
 
         window.mainloop()
 
-    def open_main_menu(nombre, nickname):
+    def open_main_menu(nombre ):
         main_win = tk.Tk()
-        main_win.title(f"Bienvenido, {nickname}")
+        main_win.title(f"Bienvenido,")
         main_win.geometry("300x400")
 
         tk.Label(main_win, text="Tus chats:", font=("Arial", 14)).pack(pady=10)
@@ -60,7 +60,7 @@ def run_gui(dummy_client=None):
             if selected:
                 chat_name = chats_listbox.get(selected[0])
                 main_win.destroy()
-                open_chat_window(nombre, nickname, chat_name=chat_name)
+                open_chat_window(nombre, chat_name=chat_name)
 
         chats_listbox.bind("<Double-Button-1>", abrir_chat_seleccionado)
 
@@ -87,7 +87,7 @@ def run_gui(dummy_client=None):
     entry_nombre = tk.Entry(reg_window)
     entry_nombre.pack()
 
-    tk.Label(reg_window, text="Nickname:").pack(pady=(10,0))
+    tk.Label(reg_window, text="Nombre:").pack(pady=(10,0))
     entry_nick = tk.Entry(reg_window)
     entry_nick.pack()
 

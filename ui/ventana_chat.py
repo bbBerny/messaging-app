@@ -5,30 +5,24 @@ from tkinter import messagebox
 from datetime import datetime
 
 class VentanaChat:
-    def __init__(self, app, chat_name, volver):
+    def __init__(self, app, chat_id, chat_name, volver):
         self.app = app
+        self.chat_id = chat_id
         self.chat_name = chat_name
         self.volver = volver
+        self.last_timestamp = "2023-01-01 00:00:00"  # para filtrar mensajes nuevos
 
     def mostrar(self):
-        # Appearance
         ctk.set_appearance_mode("dark" if self.app.modo_oscuro else "light")
         ctk.set_default_color_theme("blue")
 
-        # Main window
         self.window = ctk.CTk()
-        self.window.title(f"{self.chat_name} — {self.app.nickname}")
         self.window.geometry("750x600")
+        self.window.title(f"Chat: {self.chat_name}")
 
-        # Register so incoming chat messages land in this UI
-        self.app.client.register_handler(self.on_server_message)
-
-
-        # Scrollable frame for messages
         self.frame_mensajes = ctk.CTkScrollableFrame(self.window, height=450)
         self.frame_mensajes.pack(padx=10, pady=10, fill="both", expand=True)
 
-        # Input bar
         frame_entrada = ctk.CTkFrame(self.window)
         frame_entrada.pack(padx=10, pady=(0,10), fill="x")
 
@@ -39,10 +33,27 @@ class VentanaChat:
         ctk.CTkButton(frame_entrada, text="Enviar", command=self.enviar).pack(side="left", padx=5)
         ctk.CTkButton(frame_entrada, text="← Volver", command=self.salir).pack(side="left", padx=5)
 
+        self.app.client.register_handler(self.on_server_message)
+
+        self.obtener_mensajes_chat()
+        self.recargar_historial()  # empieza recarga automática
+
         self.window.mainloop()
 
+    def obtener_mensajes_chat(self):
+        payload = {
+            "action": 8,
+            "chat_id": self.chat_id,
+            "last_update_timestamp": self.last_timestamp,
+            "token": self.app.token
+        }
+        self.app.client.send_message(json.dumps(payload))
+
+    def recargar_historial(self):
+        self.obtener_mensajes_chat()
+        self.window.after(5000, self.recargar_historial)  # 5 segundos
+
     def agregar_mensaje_local(self, texto):
-        """Display a local message in the scroll frame."""
         hora = datetime.now().strftime("%I:%M %p")
         label = ctk.CTkLabel(
             self.frame_mensajes,
@@ -55,9 +66,8 @@ class VentanaChat:
     def enviar(self):
         texto = self.entry.get().strip()
         if not texto:
-            return  # nothing to send
+            return
 
-        # 1) Check we have a connected client and a valid token
         if not getattr(self.app, "client", None):
             messagebox.showerror("Error", "No estás conectado al servidor.")
             return
@@ -65,35 +75,34 @@ class VentanaChat:
             messagebox.showerror("Error", "Token de autenticación no disponible.")
             return
 
-        # 2) Build the MSG_SEND payload (action 3)
         payload = {
-            "action": 3,
-            "token": self.app.token,
-            "chat": self.chat_name,
-            "msg": texto
+            "action": 6,
+            "chat_id": self.chat_id,
+            "sender_id": self.app.user_id,
+            "content": texto,
+            "message_type": "text",
+            "token": self.app.token
         }
 
-        # 3) Send it to the server
         try:
-            # newline‐delimited JSON
-            self.app.client.send_message(json.dumps(payload) + "\n")
+            self.app.client.send_message(json.dumps(payload))
+            self.entry.delete(0, "end")
         except Exception as e:
             messagebox.showerror("Error al enviar", f"No se pudo enviar el mensaje:\n{e}")
-            return
-
-        # 4) Display locally
-        self.agregar_mensaje_local(f"{self.app.nickname}: {texto}")
-        self.entry.delete(0, "end")
 
     def salir(self):
         self.window.destroy()
         self.volver(self.app).mostrar()
 
-
     def on_server_message(self, msg: dict):
-        # only handle messages for this chat
-        if msg.get("action")==3 and msg.get("chat")==self.chat_name:
-            texto = f"{msg.get('from')}: {msg.get('msg')}"
-            # schedule on the Tk main thread
-            self.window.after(0, self.agregar_mensaje_local, texto)
+        if msg.get("action") == 8 and "messages_array" in msg:
+            for mensaje in msg["messages_array"]:
+                contenido = f"{mensaje['sender_username']}: {mensaje['content']}"
+                self.window.after(0, self.agregar_mensaje_local, contenido)
+                # Actualizar timestamp si existe
+                if "created_at" in mensaje:
+                    self.last_timestamp = mensaje["created_at"]
 
+        elif msg.get("action") == 6 and msg.get("chat_id") == self.chat_id:
+            contenido = f"{msg.get('sender_username', 'usuario')}: {msg.get('content')}"
+            self.window.after(0, self.agregar_mensaje_local, contenido)

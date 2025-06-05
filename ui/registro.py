@@ -1,113 +1,102 @@
 import json
 import customtkinter as ctk
 from tkinter import messagebox
-from ui.menu_principal import MenuPrincipal
 from client.tcp_client import TCPClient
+from ui.menu_principal import MenuPrincipal
 
 class RegistroVentana:
     def __init__(self, app):
         self.app = app
-        # we’ll hold the TCPClient here so later windows can reuse it
         self.client = None
+        self.usuario_ingresado = ""
 
     def mostrar(self):
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
         self.window = ctk.CTk()
-        self.window.title("Registro de Usuario")
-        self.window.geometry("300x240")
+        self.window.title("Iniciar Sesión")
+        self.window.geometry("300x260")
 
-        # ---- Name / Nickname ----
-        ctk.CTkLabel(self.window, text="Nombre:").pack(pady=(10, 0))
-        self.entry_nombre = ctk.CTkEntry(self.window)
-        self.entry_nombre.pack(pady=(0, 10))
-
-        ctk.CTkLabel(self.window, text="Nickname:").pack()
-        self.entry_nick = ctk.CTkEntry(self.window)
-        self.entry_nick.pack(pady=(0, 10))
+        # ---- Username / Email ----
+        ctk.CTkLabel(self.window, text="Usuario o Email:").pack(pady=(10, 0))
+        self.entry_usuario = ctk.CTkEntry(self.window)
+        self.entry_usuario.pack(pady=(0, 10))
 
         # ---- Password ----
-        ctk.CTkLabel(self.window, text="Password:").pack()
+        ctk.CTkLabel(self.window, text="Contraseña:").pack()
         self.entry_password = ctk.CTkEntry(self.window, show="*")
         self.entry_password.pack(pady=(0, 10))
 
         ctk.CTkButton(
             self.window,
-            text="Registrar",
-            command=self.registrar
-        ).pack(pady=10)
+            text="Login",
+            command=self.iniciar_sesion
+        ).pack(pady=(5, 5))
+
+        ctk.CTkLabel(self.window, text="¿No tienes una cuenta?").pack()
+        ctk.CTkButton(
+            self.window,
+            text="Crear cuenta",
+            command=self.enviar_a_crear_cuenta
+        ).pack(pady=(0, 10))
 
         self.window.mainloop()
 
-    def registrar(self):
-        nombre   = self.entry_nombre.get().strip()
-        nick     = self.entry_nick.get().strip()
+    def iniciar_sesion(self):
+        usuario = self.entry_usuario.get().strip()
         password = self.entry_password.get().strip()
 
-        if not (nombre and nick and password):
-            messagebox.showwarning(
-                "Datos incompletos",
-                "Por favor, ingresa nombre, nickname y password."
-            )
+        if not (usuario and password):
+            messagebox.showwarning("Datos incompletos", "Por favor, ingresa usuario/email y contraseña.")
             return
 
-        # 1) Open connection to the load-balancer front end
         try:
-            self.client = TCPClient(host="10.7.3.231", port=3001)
+            self.client = TCPClient(host="10.7.11.159", port=3000)
+            self.client.register_handler(self.manejar_respuesta_servidor)
         except Exception as e:
             messagebox.showerror("Error de Conexión", f"No se pudo conectar al servidor: {e}")
             return
 
-        # 2) Build & send REGISTER payload
-        #    See backend ACTIONS enum: REGISTER = 2 :contentReference[oaicite:1]{index=1}
-        register_payload = {
-            "action": 2,
-            "username": nick,
-            "password": password
-        }
-        # newline-delimited JSON
-        self.client.send_message(json.dumps(register_payload) + "\n")
-
-        # 3) Wait synchronously for response
-        resp_raw = self.client.sock.recv(1024).decode().strip()
-        try:
-            resp = json.loads(resp_raw)
-        except json.JSONDecodeError:
-            messagebox.showerror("Error", "Respuesta inválida del servidor al registrar.")
-            return
-
-        if not resp.get("success", False):
-            messagebox.showerror("Registro fallido", resp.get("error", "Error desconocido"))
-            return
-
-        # 4) On register success, immediately LOGIN
-        login_payload = {
+        self.usuario_ingresado = usuario
+        payload = {
             "action": 0,
-            "username": nick,
+            "key": usuario,
             "password": password
         }
-        self.client.send_message(json.dumps(login_payload) + "\n")
 
-        resp_raw = self.client.sock.recv(1024).decode().strip()
-        try:
-            resp = json.loads(resp_raw)
-        except json.JSONDecodeError:
-            messagebox.showerror("Error", "Respuesta inválida del servidor al iniciar sesión.")
+        self.client.send_message(json.dumps(payload))
+
+    def manejar_respuesta_servidor(self, mensaje):
+        print("📨 Mensaje recibido del servidor:", json.dumps(mensaje, indent=2))
+
+        code = mensaje.get("response_code", 0)
+        if code != 200:
+            messagebox.showerror("Login fallido", mensaje.get("response_text", "Error desconocido."))
             return
 
-        if not resp.get("success", False):
-            messagebox.showerror("Login fallido", resp.get("error", "Credenciales inválidas"))
+        token = mensaje.get("token")
+        user_id = mensaje.get("user_id")
+
+        if not token or user_id is None:
+            messagebox.showerror("Login fallido", "Faltan datos del servidor (token o user_id).")
             return
 
-        # 5) Store token and user info in app state
-        token = resp.get("token")
+        # Guardar datos en la aplicación
         self.app.set_token(token)
-        self.app.set_usuario(nombre, nick)
+        self.app.set_user_id(user_id)
+        self.app.set_usuario(self.usuario_ingresado)
+        self.app.set_client(self.client)
 
-        # 6) Hand off the same TCPClient to the rest of the app
-        self.app.client = self.client
+        # Transición segura al menú principal
+        self.window.after(0, self.ir_a_menu_principal)
 
-        # 7) Close registration and open main menu
+    def ir_a_menu_principal(self):
         self.window.destroy()
         MenuPrincipal(self.app).mostrar()
+
+
+    def enviar_a_crear_cuenta(self):
+        from ui.Create_account import Create_account
+        self.window.destroy()
+        Create_account(self.app).mostrar()
